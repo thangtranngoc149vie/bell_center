@@ -133,10 +133,7 @@ public sealed class NotificationsController : ControllerBase
         {
             if (!Guid.TryParse(request.Cursor, out var parsedCursor))
             {
-                errorResult = ValidationProblem(new Dictionary<string, string[]>
-                {
-                    [nameof(request.Cursor)] = new[] { "Cursor must be a valid UUID." }
-                });
+                errorResult = ValidationError(nameof(request.Cursor), "Cursor must be a valid UUID.");
                 return false;
             }
 
@@ -148,10 +145,7 @@ public sealed class NotificationsController : ControllerBase
         {
             if (!Guid.TryParse(request.SourceEntityId, out var parsedSourceId))
             {
-                errorResult = ValidationProblem(new Dictionary<string, string[]>
-                {
-                    [nameof(request.SourceEntityId)] = new[] { "Source entity id must be a valid UUID." }
-                });
+                errorResult = ValidationError(nameof(request.SourceEntityId), "Source entity id must be a valid UUID.");
                 return false;
             }
 
@@ -161,10 +155,7 @@ public sealed class NotificationsController : ControllerBase
         var limit = request.Limit ?? 20;
         if (limit < 1 || limit > 100)
         {
-            errorResult = ValidationProblem(new Dictionary<string, string[]>
-            {
-                [nameof(request.Limit)] = new[] { "Limit must be between 1 and 100." }
-            });
+            errorResult = ValidationError(nameof(request.Limit), "Limit must be between 1 and 100.");
             return false;
         }
 
@@ -173,10 +164,7 @@ public sealed class NotificationsController : ControllerBase
         {
             if (!AllowedSeverities.Contains(request.Severity))
             {
-                errorResult = ValidationProblem(new Dictionary<string, string[]>
-                {
-                    [nameof(request.Severity)] = new[] { "Severity must be one of info, warning, or critical." }
-                });
+                errorResult = ValidationError(nameof(request.Severity), "Severity must be one of info, warning, or critical.");
                 return false;
             }
 
@@ -195,10 +183,7 @@ public sealed class NotificationsController : ControllerBase
                     sort = NotificationSortOrder.CreatedAtAsc;
                     break;
                 default:
-                    errorResult = ValidationProblem(new Dictionary<string, string[]>
-                    {
-                        [nameof(request.Sort)] = new[] { "Sort must be created_at_desc or created_at_asc." }
-                    });
+                    errorResult = ValidationError(nameof(request.Sort), "Sort must be created_at_desc or created_at_asc.");
                     return false;
             }
         }
@@ -218,5 +203,15 @@ public sealed class NotificationsController : ControllerBase
         };
 
         return true;
+    }
+
+    private ActionResult ValidationError(string key, string message)
+    {
+        var details = new ValidationProblemDetails(new Dictionary<string, string[]>
+        {
+            [key] = new[] { message }
+        });
+
+        return ValidationProblem(details);
     }
 }

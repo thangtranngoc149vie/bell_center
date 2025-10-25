@@ -66,6 +66,12 @@ This repository hosts a .NET 8 Web API that exposes the Bell Center notification
    ```
    The project exposes Swagger UI at `https://localhost:7143/swagger` (or the HTTP port variant) by default.
 
+4. **Logging**
+   * Serilog is configured through `appsettings.json`. By default it writes structured logs to the console with the `BellCenter.Api`
+     application name.
+   * Override the `Serilog` section (or provide environment-specific overrides in `appsettings.Development.json`) to change
+     minimum levels, enrichers, or sinks. The host is wired to `UseSerilog`, and request logging middleware is enabled automatically.
+
 ## Request handling & business rules
 
 * **User scoping**: `UserContext` resolves the current user id from JWT claims (`sub` or `nameidentifier`). For local development, a `X-User-Id` header containing a GUID is also accepted.
@@ -109,6 +115,7 @@ The recommended test plan from the specification still applies:
 * Unit tests covering filter parsing and SQL parameter binding.
 * Integration tests using a disposable PostgreSQL instance (e.g., Testcontainers) to validate cursor pagination, read state transitions, and statistics.
 * Contract tests to ensure the API implementation matches `openapi/bell-center-api.yaml`.
+* Serilog request logging can be asserted via integration tests by capturing console output or substituting sinks during tests.
 
 > Because the authoring environment lacks the .NET SDK, `dotnet test` was not executed. Run the full test suite locally once dependencies are available.
 
