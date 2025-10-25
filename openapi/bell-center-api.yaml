@@ -1,0 +1,275 @@
+openapi: 3.0.3
+info:
+  title: FISA Bell Center APIs
+  version: 1.0.0
+servers:
+  - url: /api/v1
+paths:
+  /notifications:
+    get:
+      summary: List current user's notifications
+      parameters:
+        - in: query
+          name: cursor
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - in: query
+          name: unread_only
+          schema:
+            type: boolean
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [info, warning, critical]
+        - in: query
+          name: category
+          schema:
+            type: string
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: source_entity_type
+          schema:
+            type: string
+        - in: query
+          name: source_entity_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [created_at_desc, created_at_asc]
+            default: created_at_desc
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationListResponse'
+  /notifications/{id}:
+    get:
+      summary: Get notification detail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /notifications/{id}/read:
+    patch:
+      summary: Mark read/unread
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkReadRequest'
+      responses:
+        '204':
+          description: No Content
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /notifications/bulk-read:
+    post:
+      summary: Bulk read (ids or filter mark-all)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkReadRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkResult'
+  /notifications/{id}/hide:
+    patch:
+      summary: Hide a notification
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: No Content
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /notifications/stats:
+    get:
+      summary: Aggregated unread stats
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationStats'
+  /notifications/negotiate:
+    get:
+      summary: SignalR negotiation info
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NegotiateResponse'
+components:
+  schemas:
+    NotificationSource:
+      type: object
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+          format: uuid
+    NotificationItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        message:
+          type: string
+        category:
+          type: string
+        type:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        created_at:
+          type: string
+          format: date-time
+        is_read:
+          type: boolean
+        open_url:
+          type: string
+        source:
+          $ref: '#/components/schemas/NotificationSource'
+        payload:
+          type: object
+          additionalProperties: true
+    NotificationDetail:
+      allOf:
+        - $ref: '#/components/schemas/NotificationItem'
+    NotificationListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationItem'
+        next_cursor:
+          type: string
+          format: uuid
+        stats:
+          $ref: '#/components/schemas/NotificationStats'
+    NotificationStats:
+      type: object
+      properties:
+        unread_total:
+          type: integer
+        by_category:
+          type: object
+          additionalProperties:
+            type: integer
+        by_severity:
+          type: object
+          additionalProperties:
+            type: integer
+    MarkReadRequest:
+      type: object
+      required: [is_read]
+      properties:
+        is_read:
+          type: boolean
+    BulkReadFilters:
+      type: object
+      properties:
+        category:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+    BulkReadRequest:
+      type: object
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        all_unread:
+          type: boolean
+          default: false
+        filters:
+          $ref: '#/components/schemas/BulkReadFilters'
+    BulkResult:
+      type: object
+      properties:
+        updated:
+          type: integer
+    NegotiateResponse:
+      type: object
+      properties:
+        url:
+          type: string
+        access_token:
+          type: string
+        expires_in:
+          type: integer
+  responses:
+    NotFound:
+      description: Resource not found
