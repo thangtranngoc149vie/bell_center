@@ -1,4 +1,3 @@
-using System.Linq;
 using System.Security.Claims;
 
 namespace BellCenter.Api.Support;
@@ -29,8 +28,8 @@ public sealed class UserContext(IHttpContextAccessor accessor) : IUserContext
         var headers = _accessor.HttpContext?.Request?.Headers;
         if (headers is not null && headers.TryGetValue("X-User-Id", out var headerValue))
         {
-            var headerId = headerValue.FirstOrDefault();
-            if (Guid.TryParse(headerId, out var guid))
+            var headerId = headerValue.Count > 0 ? headerValue[0] : null;
+            if (headerId is not null && Guid.TryParse(headerId, out var guid))
             {
                 return guid;
             }

@@ -1,5 +1,4 @@
 using System.Data;
-using System.Linq;
 using System.Text.Json.Nodes;
 using BellCenter.Api.Models;
 using Dapper;
@@ -31,8 +30,13 @@ public sealed class NotificationRepository(IDbConnection connection) : INotifica
 
         var command = new CommandDefinition(sql, parameters, cancellationToken: cancellationToken);
         var rows = await _connection.QueryAsync<NotificationDbRow>(command);
-        var items = rows.Select(MapListItem).ToList();
-        Guid? nextCursor = items.Count > 0 ? items[^1].UserNotificationId : null;
+        var items = new List<NotificationListItem>();
+        foreach (var row in rows)
+        {
+            items.Add(MapListItem(row));
+        }
+
+        Guid? nextCursor = items.Count > 0 ? items[items.Count - 1].UserNotificationId : null;
         var stats = await GetStatsAsync(userId, cancellationToken);
 
         return new NotificationListResponse
@@ -126,8 +130,8 @@ public sealed class NotificationRepository(IDbConnection connection) : INotifica
             return await _connection.ExecuteAsync(command);
         }
 
-        var ids = request.Ids?.Where(id => id != Guid.Empty).Distinct().ToArray();
-        if (ids is null || ids.Length == 0)
+        var ids = NormalizeIds(request.Ids);
+        if (ids.Length == 0)
         {
             return 0;
         }
@@ -187,12 +191,27 @@ public sealed class NotificationRepository(IDbConnection connection) : INotifica
         var severityRows = await _connection.QueryAsync<AggregateRow>(
             new CommandDefinition(bySeveritySql, new { uid = userId }, cancellationToken: cancellationToken));
 
-        var byCategory = categoryRows
-            .Where(row => !string.IsNullOrWhiteSpace(row.Key))
-            .ToDictionary(row => row.Key!, row => row.Value, StringComparer.OrdinalIgnoreCase);
-        var bySeverity = severityRows
-            .Where(row => !string.IsNullOrWhiteSpace(row.Key))
-            .ToDictionary(row => row.Key!, row => row.Value, StringComparer.OrdinalIgnoreCase);
+        var byCategory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in categoryRows)
+        {
+            if (string.IsNullOrWhiteSpace(row.Key))
+            {
+                continue;
+            }
+
+            byCategory[row.Key!] = row.Value;
+        }
+
+        var bySeverity = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in severityRows)
+        {
+            if (string.IsNullOrWhiteSpace(row.Key))
+            {
+                continue;
+            }
+
+            bySeverity[row.Key!] = row.Value;
+        }
 
         return new NotificationStats
         {
@@ -290,6 +309,36 @@ ORDER BY
     CASE WHEN @sort = 'created_at_asc' THEN un.id END ASC,
     CASE WHEN @sort = 'created_at_desc' THEN un.id END DESC
 LIMIT @limit;";
+
+    private static Guid[] NormalizeIds(IReadOnlyCollection<Guid>? ids)
+    {
+        if (ids is null || ids.Count == 0)
+        {
+            return Array.Empty<Guid>();
+        }
+
+        var set = new HashSet<Guid>();
+        var ordered = new List<Guid>();
+        foreach (var id in ids)
+        {
+            if (id == Guid.Empty)
+            {
+                continue;
+            }
+
+            if (set.Add(id))
+            {
+                ordered.Add(id);
+            }
+        }
+
+        if (ordered.Count == 0)
+        {
+            return Array.Empty<Guid>();
+        }
+
+        return ordered.ToArray();
+    }
 
     private sealed record NotificationDbRow
     {
