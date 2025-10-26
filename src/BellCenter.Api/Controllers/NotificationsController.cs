@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using BellCenter.Api.Infrastructure;
 using BellCenter.Api.Models;
 using BellCenter.Api.Options;
+using BellCenter.Api.Services;
 using BellCenter.Api.Support;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,37 +14,40 @@ namespace BellCenter.Api.Controllers;
 [Authorize]
 public sealed class NotificationsController : ControllerBase
 {
-    private static readonly HashSet<string> AllowedSeverities = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "info", "warning", "critical"
-    };
-
-    private readonly INotificationRepository _repository;
+    private readonly INotificationService _service;
     private readonly IUserContext _userContext;
     private readonly IOptionsMonitor<SignalRNegotiationOptions> _negotiationOptions;
 
     public NotificationsController(
-        INotificationRepository repository,
+        INotificationService service,
         IUserContext userContext,
         IOptionsMonitor<SignalRNegotiationOptions> negotiationOptions)
     {
-        _repository = repository;
+        _service = service;
         _userContext = userContext;
         _negotiationOptions = negotiationOptions;
     }
 
     [HttpGet]
     [ProducesResponseType(typeof(NotificationListResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<NotificationListResponse>> ListAsync([FromQuery] NotificationListRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<NotificationListResponse>> ListAsync(
+        [FromQuery] NotificationListRequest request,
+        CancellationToken cancellationToken)
     {
-        if (!TryBuildQuery(request, out var query, out var errorResult))
-        {
-            return errorResult!;
-        }
-
         var userId = _userContext.GetCurrentUserId();
-        var response = await _repository.ListAsync(userId, query, cancellationToken);
-        return Ok(response);
+        try
+        {
+            var response = await _service.ListAsync(userId, request, cancellationToken);
+            return Ok(response);
+        }
+        catch (NotificationValidationException ex)
+        {
+            return ValidationProblemResult(ex);
+        }
+        catch (NotificationAccessDeniedException)
+        {
+            return Forbid();
+        }
     }
 
     [HttpGet("{id:guid}")]
@@ -53,36 +56,66 @@ public sealed class NotificationsController : ControllerBase
     public async Task<ActionResult<NotificationDetail>> GetAsync(Guid id, CancellationToken cancellationToken)
     {
         var userId = _userContext.GetCurrentUserId();
-        var detail = await _repository.GetAsync(userId, id, cancellationToken);
-        if (detail is null)
+        try
         {
-            return NotFound();
-        }
+            var detail = await _service.GetAsync(userId, id, cancellationToken);
+            if (detail is null)
+            {
+                return NotFound();
+            }
 
-        return Ok(detail);
+            return Ok(detail);
+        }
+        catch (NotificationAccessDeniedException)
+        {
+            return Forbid();
+        }
     }
 
     [HttpPatch("{id:guid}/read")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> MarkReadAsync(Guid id, [FromBody] MarkReadRequest request, CancellationToken cancellationToken)
+    public async Task<IActionResult> MarkReadAsync(
+        Guid id,
+        [FromBody] MarkReadRequest request,
+        CancellationToken cancellationToken)
     {
         var userId = _userContext.GetCurrentUserId();
-        var updated = await _repository.MarkReadAsync(userId, id, request.IsRead, cancellationToken);
-        if (!updated)
+        try
         {
-            return NotFound();
-        }
+            var updated = await _service.MarkReadAsync(userId, id, request.IsRead, cancellationToken);
+            if (!updated)
+            {
+                return NotFound();
+            }
 
-        return NoContent();
+            return NoContent();
+        }
+        catch (NotificationAccessDeniedException)
+        {
+            return Forbid();
+        }
     }
 
     [HttpPost("bulk-read")]
     [ProducesResponseType(typeof(BulkReadResult), StatusCodes.Status200OK)]
-    public async Task<ActionResult<BulkReadResult>> BulkReadAsync([FromBody] BulkReadRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<BulkReadResult>> BulkReadAsync(
+        [FromBody] BulkReadRequest request,
+        CancellationToken cancellationToken)
     {
         var userId = _userContext.GetCurrentUserId();
-        var updated = await _repository.BulkReadAsync(userId, request, cancellationToken);
-        return Ok(new BulkReadResult { Updated = updated });
+        try
+        {
+            var updated = await _service.BulkReadAsync(userId, request, cancellationToken);
+            return Ok(new BulkReadResult { Updated = updated });
+        }
+        catch (NotificationValidationException ex)
+        {
+            return ValidationProblemResult(ex);
+        }
+        catch (NotificationAccessDeniedException)
+        {
+            return Forbid();
+        }
     }
 
     [HttpPatch("{id:guid}/hide")]
@@ -90,13 +123,20 @@ public sealed class NotificationsController : ControllerBase
     public async Task<IActionResult> HideAsync(Guid id, CancellationToken cancellationToken)
     {
         var userId = _userContext.GetCurrentUserId();
-        var updated = await _repository.HideAsync(userId, id, cancellationToken);
-        if (!updated)
+        try
         {
-            return NotFound();
-        }
+            var updated = await _service.HideAsync(userId, id, cancellationToken);
+            if (!updated)
+            {
+                return NotFound();
+            }
 
-        return NoContent();
+            return NoContent();
+        }
+        catch (NotificationAccessDeniedException)
+        {
+            return Forbid();
+        }
     }
 
     [HttpGet("stats")]
@@ -104,8 +144,15 @@ public sealed class NotificationsController : ControllerBase
     public async Task<ActionResult<NotificationStats>> GetStatsAsync(CancellationToken cancellationToken)
     {
         var userId = _userContext.GetCurrentUserId();
-        var stats = await _repository.GetStatsAsync(userId, cancellationToken);
-        return Ok(stats);
+        try
+        {
+            var stats = await _service.GetStatsAsync(userId, cancellationToken);
+            return Ok(stats);
+        }
+        catch (NotificationAccessDeniedException)
+        {
+            return Forbid();
+        }
     }
 
     [AllowAnonymous]
@@ -123,95 +170,14 @@ public sealed class NotificationsController : ControllerBase
         return Ok(response);
     }
 
-    private bool TryBuildQuery(NotificationListRequest request, out NotificationListQuery query, out ActionResult? errorResult)
+    private ActionResult ValidationProblemResult(NotificationValidationException exception)
     {
-        query = new NotificationListQuery();
-        errorResult = null;
-
-        Guid? cursor = null;
-        if (!string.IsNullOrWhiteSpace(request.Cursor))
+        var errors = new Dictionary<string, string[]>(exception.Errors, StringComparer.OrdinalIgnoreCase);
+        var details = new ValidationProblemDetails(errors)
         {
-            if (!Guid.TryParse(request.Cursor, out var parsedCursor))
-            {
-                errorResult = ValidationError(nameof(request.Cursor), "Cursor must be a valid UUID.");
-                return false;
-            }
-
-            cursor = parsedCursor;
-        }
-
-        Guid? sourceId = null;
-        if (!string.IsNullOrWhiteSpace(request.SourceEntityId))
-        {
-            if (!Guid.TryParse(request.SourceEntityId, out var parsedSourceId))
-            {
-                errorResult = ValidationError(nameof(request.SourceEntityId), "Source entity id must be a valid UUID.");
-                return false;
-            }
-
-            sourceId = parsedSourceId;
-        }
-
-        var limit = request.Limit ?? 20;
-        if (limit < 1 || limit > 100)
-        {
-            errorResult = ValidationError(nameof(request.Limit), "Limit must be between 1 and 100.");
-            return false;
-        }
-
-        string? severity = null;
-        if (!string.IsNullOrWhiteSpace(request.Severity))
-        {
-            if (!AllowedSeverities.Contains(request.Severity))
-            {
-                errorResult = ValidationError(nameof(request.Severity), "Severity must be one of info, warning, or critical.");
-                return false;
-            }
-
-            severity = request.Severity.ToLowerInvariant();
-        }
-
-        var sort = NotificationSortOrder.CreatedAtDesc;
-        if (!string.IsNullOrWhiteSpace(request.Sort))
-        {
-            switch (request.Sort.ToLowerInvariant())
-            {
-                case "created_at_desc":
-                    sort = NotificationSortOrder.CreatedAtDesc;
-                    break;
-                case "created_at_asc":
-                    sort = NotificationSortOrder.CreatedAtAsc;
-                    break;
-                default:
-                    errorResult = ValidationError(nameof(request.Sort), "Sort must be created_at_desc or created_at_asc.");
-                    return false;
-            }
-        }
-
-        query = new NotificationListQuery
-        {
-            Cursor = cursor,
-            Limit = limit,
-            UnreadOnly = request.UnreadOnly,
-            Severity = severity,
-            Category = request.Category,
-            From = request.From,
-            To = request.To,
-            SourceEntityType = request.SourceEntityType,
-            SourceEntityId = sourceId,
-            Sort = sort
+            Status = StatusCodes.Status400BadRequest
         };
 
-        return true;
-    }
-
-    private ActionResult ValidationError(string key, string message)
-    {
-        var details = new ValidationProblemDetails(new Dictionary<string, string[]>
-        {
-            [key] = new[] { message }
-        });
-
-        return ValidationProblem(details);
+        return BadRequest(details);
     }
 }

@@ -19,11 +19,17 @@ This repository hosts a .NET 8 Web API that exposes the Bell Center notification
         │   └── NotificationsController.cs
         ├── Infrastructure
         │   ├── INotificationRepository.cs
-        │   └── NotificationRepository.cs
+        │   ├── IUserAccessRepository.cs
+        │   ├── NotificationRepository.cs
+        │   └── UserAccessRepository.cs
         ├── Models
         │   ├── NotificationListQuery.cs
         │   ├── NotificationListRequest.cs
         │   └── NotificationModels.cs
+        ├── Services
+        │   ├── INotificationService.cs
+        │   ├── NotificationExceptions.cs
+        │   └── NotificationService.cs
         ├── Options
         │   └── SignalRNegotiationOptions.cs
         ├── Program.cs
@@ -75,6 +81,7 @@ This repository hosts a .NET 8 Web API that exposes the Bell Center notification
 ## Request handling & business rules
 
 * **User scoping**: `UserContext` resolves the current user id from JWT claims (`sub` or `nameidentifier`). For local development, a `X-User-Id` header containing a GUID is also accepted.
+* **Service orchestration**: Controllers delegate to `NotificationService`, which validates incoming parameters, normalises filters, and ensures the current user exists (and therefore has permission) by querying `UserAccessRepository` before hitting the notification store.
 * **Cursor pagination**: List endpoints use the `user_notifications.id` as a stable cursor. Supplying the `cursor` query parameter skips records up to and including that identifier. Sorting supports both `created_at_desc` (default) and `created_at_asc`.
 * **Filtering**: Filters for severity, category, time window, and source metadata are translated directly into SQL predicates with proper parameter binding. Severity values are validated against the allowed set `{info, warning, critical}`.
 * **Read state management**: `PATCH /{id}/read`, `POST /bulk-read`, and `PATCH /{id}/hide` operate against the `user_notifications` table. Updates are idempotent and skip rows that are already in the requested state.
@@ -102,6 +109,7 @@ An OpenAPI 3.0 document (`openapi/bell-center-api.yaml`) mirrors these routes fo
   * Join `user_notifications` and `notifications` to avoid N+1 fetches.
   * Use server-side pagination and ordering to leverage indexes (see migration script).
   * Parse JSON payloads safely using `System.Text.Json.Nodes` while ignoring invalid JSON fragments to keep the API resilient to malformed data.
+* `UserAccessRepository` confirms that a requesting user exists in the `users` table so service-level permission checks can fail fast before hitting notification data.
 
 ## Realtime & outbox notes
 

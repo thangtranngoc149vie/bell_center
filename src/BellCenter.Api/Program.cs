@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using BellCenter.Api.Infrastructure;
 using BellCenter.Api.Options;
+using BellCenter.Api.Services;
 using BellCenter.Api.Support;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.OpenApi.Models;
@@ -66,6 +67,8 @@ builder.Services.AddScoped<IDbConnection>(sp =>
 });
 
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
+builder.Services.AddScoped<IUserAccessRepository, UserAccessRepository>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
 
 var app = builder.Build();
 
